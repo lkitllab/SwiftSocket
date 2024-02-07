@@ -35,9 +35,18 @@ import Foundation
 @_silgen_name("ytcpsocket_bytes_available") private func c_ytcpsocket_bytes_available(_ fd:Int32) -> Int32
 @_silgen_name("ytcpsocket_send") private func c_ytcpsocket_send(_ fd:Int32,buff:UnsafePointer<Byte>,len:Int32) -> Int32
 @_silgen_name("ytcpsocket_pull") private func c_ytcpsocket_pull(_ fd:Int32,buff:UnsafePointer<Byte>,len:Int32,timeout:Int32) -> Int32
+@_silgen_name("ytcpsocket_pull_with_callback") private func c_ytcpsocket_pull_with_callback(_ fd:Int32,buff:UnsafePointer<Byte>,len:Int32,timeout:Int32,wrapper:UnsafeMutableRawPointer,callback: @escaping @convention(c) (UnsafePointer<Byte>,Int32,UnsafeMutableRawPointer) -> Void) -> Int32
 @_silgen_name("ytcpsocket_listen") private func c_ytcpsocket_listen(_ address:UnsafePointer<Int8>,port:Int32)->Int32
 @_silgen_name("ytcpsocket_accept") private func c_ytcpsocket_accept(_ onsocketfd:Int32,ip:UnsafePointer<Int8>,port:UnsafePointer<Int32>,timeout:Int32) -> Int32
 @_silgen_name("ytcpsocket_port") private func c_ytcpsocket_port(_ fd:Int32) -> Int32
+@_silgen_name("performOperation") private func performOperationSwift(_ operation: @escaping @convention(c) (Int32, Int32) -> Int32, _ x: Int32, _ y: Int32)
+
+class CallbackWrapper {
+    let callback: ([Byte]) -> Void
+    init(callback: @escaping ([Byte]) -> Void) {
+        self.callback = callback
+    }
+}
 
 open class TCPClient: Socket {
     /*
@@ -135,6 +144,29 @@ open class TCPClient: Socket {
         let data: [Byte] = Array(rs)
       
         return data
+    }
+    
+    open func readWithCallback(
+        _ expectlen: Int,
+        timeout: Int = -1,
+        callback: @escaping ([Byte]) -> Void
+    ) {
+        guard let fd:Int32 = self.fd else { return }
+      
+        var buff = [Byte](repeating: 0x0,count: expectlen)
+        let wrapper = CallbackWrapper(callback: callback)
+        let wrapperRef = Unmanaged.passUnretained(wrapper).toOpaque()
+        let readLen = c_ytcpsocket_pull_with_callback(fd, buff: &buff, len: Int32(expectlen), timeout: Int32(timeout), wrapper: wrapperRef, callback: { buffRef, datalen, wrp in
+            let buffer = UnsafeBufferPointer(start: buffRef, count: Int(datalen))
+            let wrapperx = Unmanaged<CallbackWrapper>.fromOpaque(wrp).takeUnretainedValue()
+            let data: [Byte] = Array(buffer)
+            wrapperx.callback(data)
+        })
+        if readLen <= 0 { return }
+    }
+    
+    open func test() {
+        performOperationSwift({x,y in return x+y}, 5, 3)
     }
 
     /*
